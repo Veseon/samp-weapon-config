@@ -914,7 +914,9 @@ static bool:s_FirstSpawn[MAX_PLAYERS] = {true, ...};
 #if WC_CUSTOM_VENDING_MACHINES
 	static bool:s_CustomVendingMachines = true;
 	#if WC_USE_STREAMER
-		static s_VendingMachineObject[sizeof(sc_VendingMachines)] = {INVALID_STREAMER_ID, ...};
+		static s_VendingMachineCustomOffset = -1;
+		static STREAMER_TAG_AREA:s_VendingMachineInRange[MAX_PLAYERS] = {INVALID_STREAMER_ID, ...};
+		static STREAMER_TAG_AREA:s_VendingMachineArea[sizeof sc_VendingMachines] = {INVALID_STREAMER_ID, ...};
 	#else
 		static s_VendingMachineObject[sizeof(sc_VendingMachines)] = {-1, ...};
 	#endif
@@ -2308,6 +2310,9 @@ public OnPlayerDisconnect(playerid, reason)
 	WC_OnPlayerDisconnect(playerid, reason);
 
 	#if WC_CUSTOM_VENDING_MACHINES
+		#if WC_USE_STREAMER
+			s_VendingMachineInRange[playerid] = INVALID_STREAMER_ID;
+		#endif
 		if (s_VendingUseTimer[playerid] != -1) {
 			KillTimer(s_VendingUseTimer[playerid]);
 			s_VendingUseTimer[playerid] = -1;
@@ -2823,51 +2828,96 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 
 	if (GetPlayerState(playerid) == PLAYER_STATE_ONFOOT) {
 		#if WC_CUSTOM_VENDING_MACHINES
-			if (s_CustomVendingMachines
-			 && newkeys == KEY_SECONDARY_ATTACK
-			 && !oldkeys
-			 && s_VendingUseTimer[playerid] == -1
-			 && GetPlayerAnimationIndex(playerid) != 1660) {
-				new bool:failed = false;
+			#if WC_USE_STREAMER
+				if (s_CustomVendingMachines
+				&& IsPlayerInDynamicArea(playerid, s_VendingMachineInRange[playerid])
+				&& newkeys == KEY_SECONDARY_ATTACK
+				&& !oldkeys
+				&& s_VendingUseTimer[playerid] == -1
+				&& GetPlayerAnimationIndex(playerid) != 1660) {
+					new bool:failed = false;
 
-				if (GetPlayerMoney(playerid) <= 0 || s_PlayerHealth[playerid] >= s_PlayerMaxHealth[playerid]) {
-					failed = true;
-				}
-
-				new Float:z;
-
-				GetPlayerPos(playerid, z, z, z);
-
-				for (new i = 0, Float:health_given; i < sizeof(sc_VendingMachines); i++) {
-					if (floatabs(z - sc_VendingMachines[i][e_PosZ]) > 1.5) {
-						continue;
+					if (GetPlayerMoney(playerid) <= 0 || s_PlayerHealth[playerid] >= s_PlayerMaxHealth[playerid]) {
+						failed = true;
 					}
 
-					if (IsPlayerInRangeOfPoint(playerid, 0.5, sc_VendingMachines[i][e_FrontX], sc_VendingMachines[i][e_FrontY], z)) {
-						if (failed) {
-							PlayerPlaySound(playerid, 1055, 0.0, 0.0, 0.0);
+					new Float:z;
+					GetPlayerPos(playerid, z, z, z);
+					
+					new vendingMachine = Streamer_GetIntData(STREAMER_TYPE_AREA, s_VendingMachineInRange[playerid], s_VendingMachineCustomOffset);
+					if(!(floatabs(z - sc_VendingMachines[vendingMachine][e_PosZ]) > 1.5))
+					{
+						if(IsPlayerInRangeOfPoint(playerid, 0.5, sc_VendingMachines[vendingMachine][e_FrontX], sc_VendingMachines[vendingMachine][e_FrontY], z))
+						{
+							if(failed)
+							{
+								PlayerPlaySound(playerid, 1055, 0.0, 0.0, 0.0);
+							}
+							else
+							{
+								health_given = 35.0;
+
+								if (OnPlayerUseVendingMachine(playerid, health_given)) {
+									s_VendingUseTimer[playerid] = SetTimerEx("WC_VendingMachineUsed", 2500, false, "if", playerid, health_given);
+
+									animlib = "VENDING", animname = "VEND_USE";
+									SetPlayerFacingAngle(playerid, sc_VendingMachines[vendingMachine][e_RotZ]);
+									SetPlayerPos(playerid, sc_VendingMachines[vendingMachine][e_FrontX], sc_VendingMachines[vendingMachine][e_FrontY], z);
+									ApplyAnimation(playerid, animlib, animname, 4.1, 0, 0, 1, 0, 0, 1);
+
+									PlayerPlaySound(playerid, 42600, 0.0, 0.0, 0.0);
+								} else {
+										PlayerPlaySound(playerid, 1055, 0.0, 0.0, 0.0);
+								}
+							}
+						}
+					}
+				}
+			#else
+				if (s_CustomVendingMachines
+				&& newkeys == KEY_SECONDARY_ATTACK
+				&& !oldkeys
+				&& s_VendingUseTimer[playerid] == -1
+				&& GetPlayerAnimationIndex(playerid) != 1660) {
+					new bool:failed = false;
+
+					if (GetPlayerMoney(playerid) <= 0 || s_PlayerHealth[playerid] >= s_PlayerMaxHealth[playerid]) {
+						failed = true;
+					}
+
+					new Float:z;
+					GetPlayerPos(playerid, z, z, z);
+					
+					for (new i = 0, Float:health_given; i < sizeof(sc_VendingMachines); i++) {
+						if (floatabs(z - sc_VendingMachines[i][e_PosZ]) > 1.5) {
+							continue;
+						}
+
+						if (IsPlayerInRangeOfPoint(playerid, 0.5, sc_VendingMachines[i][e_FrontX], sc_VendingMachines[i][e_FrontY], z)) {
+							if (failed) {
+								PlayerPlaySound(playerid, 1055, 0.0, 0.0, 0.0);
+								break;
+							}
+
+							health_given = 35.0;
+
+							if (OnPlayerUseVendingMachine(playerid, health_given)) {
+								s_VendingUseTimer[playerid] = SetTimerEx("WC_VendingMachineUsed", 2500, false, "if", playerid, health_given);
+
+								animlib = "VENDING", animname = "VEND_USE";
+								SetPlayerFacingAngle(playerid, sc_VendingMachines[i][e_RotZ]);
+								SetPlayerPos(playerid, sc_VendingMachines[i][e_FrontX], sc_VendingMachines[i][e_FrontY], z);
+								ApplyAnimation(playerid, animlib, animname, 4.1, 0, 0, 1, 0, 0, 1);
+
+								PlayerPlaySound(playerid, 42600, 0.0, 0.0, 0.0);
+							} else {
+								PlayerPlaySound(playerid, 1055, 0.0, 0.0, 0.0);
+							}
+
 							break;
 						}
-
-						health_given = 35.0;
-
-						if (OnPlayerUseVendingMachine(playerid, health_given)) {
-							s_VendingUseTimer[playerid] = SetTimerEx("WC_VendingMachineUsed", 2500, false, "if", playerid, health_given);
-
-							animlib = "VENDING", animname = "VEND_USE";
-							SetPlayerFacingAngle(playerid, sc_VendingMachines[i][e_RotZ]);
-							SetPlayerPos(playerid, sc_VendingMachines[i][e_FrontX], sc_VendingMachines[i][e_FrontY], z);
-							ApplyAnimation(playerid, animlib, animname, 4.1, 0, 0, 1, 0, 0, 1);
-
-							PlayerPlaySound(playerid, 42600, 0.0, 0.0, 0.0);
-						} else {
-							PlayerPlaySound(playerid, 1055, 0.0, 0.0, 0.0);
-						}
-
-						break;
 					}
 				}
-			}
 		#endif
 
 		if (newkeys & KEY_FIRE) {
@@ -4392,9 +4442,14 @@ static WasPlayerInVehicle(playerid, time) {
 	{
 		DestroyVendingMachines();
 
-		for (new i = 0; i < sizeof(sc_VendingMachines); i++) {
-			#if WC_USE_STREAMER
-				s_VendingMachineObject[i] = CreateDynamicObject(
+		#if WC_USE_STREAMER
+			if(s_VendingMachineCustomOffset == -1)
+			{
+				s_VendingMachineCustomOffset = E_STREAMER_CUSTOM(random(2^31));
+			}
+			for(new i, STREAMER_TAG_OBJECT:vendingMachineObject; i != sizeof sc_VendingMachines; i++)
+			{
+				vendingMachineObject = CreateDynamicObject(
 					sc_VendingMachines[i][e_Model],
 					sc_VendingMachines[i][e_PosX],
 					sc_VendingMachines[i][e_PosY],
@@ -4404,35 +4459,52 @@ static WasPlayerInVehicle(playerid, time) {
 					sc_VendingMachines[i][e_RotZ],
 					.interiorid = sc_VendingMachines[i][e_Interior]
 				);
-			#else
-				s_VendingMachineObject[i] = CreateObject(
-					sc_VendingMachines[i][e_Model],
+				s_VendingMachineArea[i] = CreateDynamicSphere(
 					sc_VendingMachines[i][e_PosX],
 					sc_VendingMachines[i][e_PosY],
 					sc_VendingMachines[i][e_PosZ],
-					sc_VendingMachines[i][e_RotX],
-					sc_VendingMachines[i][e_RotY],
-					sc_VendingMachines[i][e_RotZ]
+					5.0,
+					.interiorid = sc_VendingMachines[i][e_Interior]
 				);
-			#endif
-		}
+				AttachDynamicAreaToObject(s_VendingMachineArea[i], vendingMachineObject);
+				Streamer_SetIntData(STREAMER_TYPE_AREA, s_VendingMachineArea[i], s_VendingMachineCustomOffset, i);
+			}
+		#else
+			for (new i = 0; i < sizeof(sc_VendingMachines); i++) {
+					s_VendingMachineObject[i] = CreateObject(
+						sc_VendingMachines[i][e_Model],
+						sc_VendingMachines[i][e_PosX],
+						sc_VendingMachines[i][e_PosY],
+						sc_VendingMachines[i][e_PosZ],
+						sc_VendingMachines[i][e_RotX],
+						sc_VendingMachines[i][e_RotY],
+						sc_VendingMachines[i][e_RotZ]
+					);
+			}
+		#endif
 	}
 
 	static DestroyVendingMachines()
 	{
-		for (new i = 0; i < sizeof(s_VendingMachineObject); i++) {
-			#if WC_USE_STREAMER
-				if (s_VendingMachineObject[i] != INVALID_STREAMER_ID) {
-					DestroyDynamicObject(s_VendingMachineObject[i]);
-					s_VendingMachineObject[i] = INVALID_STREAMER_ID;
+		#if WC_USE_STREAMER
+			for(new i, STREAMER_TAG_OBJECT:vendingMachineObject; i != sizeof s_VendingMachineArea; i++)
+			{
+				if(s_VendingMachineArea[i] != INVALID_STREAMER_ID)
+				{
+					vendingMachineObject = Streamer_GetIntData(STREAMER_TYPE_AREA, s_VendingMachineArea[i], E_STREAMER_ATTACHED_OBJECT);
+					DestroyDynamicObject(vendingMachineObject);
+					DestroyDynamicArea(s_VendingMachineArea[i]);
+					s_VendingMachineArea[i] = INVALID_STREAMER_ID);
 				}
-			#else
-				if (s_VendingMachineObject[i] != -1) {
-					DestroyObject(s_VendingMachineObject[i]);
-					s_VendingMachineObject[i] = -1;
-				}
-			#endif
-		}
+			}
+		#else
+			for (new i = 0; i < sizeof(s_VendingMachineObject); i++) {
+					if (s_VendingMachineObject[i] != -1) {
+						DestroyObject(s_VendingMachineObject[i]);
+						s_VendingMachineObject[i] = -1;
+					}
+			}
+		#endif
 	}
 #endif
 
@@ -5129,6 +5201,26 @@ public OnPlayerDeathFinished(playerid, bool:cancelable)
 }
 
 #if WC_CUSTOM_VENDING_MACHINES
+	#if WC_USE_STREAMER
+		public OnPlayerEnterDynamicArea(playerid, STREAMER_TAG_AREA:areaid)
+		{
+			if(Streamer_HasIntData(STREAMER_TYPE_AREA, areaid, s_VendingMachineCustomOffset))
+			{
+				s_VendingMachineInRange[playerid] = areaid;
+			}
+			return WC_OnPlayerEnterDynArea(playerid, areaid);
+		}
+
+		public OnPlayerLeaveDynamicArea(playerid, STREAMER_TAG_AREA:areaid)
+		{
+			if(s_VendingMachineInRange[playerid] == areaid)
+			{
+				s_VendingMachineInRange[playerid] = INVALID_STREAMER_ID;
+			}
+			return WC_OnPlayerLeaveDynArea(playerid, areaid);
+		}
+	#endif
+
 	public OnPlayerUseVendingMachine(playerid, &Float:health_given) {
 		return WC_OnPlayerUseVendingMachine(playerid, health_given);
 	}
@@ -5955,6 +6047,22 @@ CHAIN_FORWARD:WC_OnRejectedHit(playerid, hit[E_REJECTED_HIT]) = 1;
 	#endif
 	#define OnPlayerUseVendingMachine(%0) CHAIN_PUBLIC:WC_OnPlayerUseVendingMachine(%0)
 	CHAIN_FORWARD:WC_OnPlayerUseVendingMachine(playerid, &Float:health_given) = 1;
+
+	#if defined _ALS_OnPlayerEnterDynamicArea
+		#undef OnPlayerEnterDynamicArea
+	#else
+		#define _ALS_OnPlayerEnterDynamicArea
+	#endif
+	#define OnPlayerEnterDynamicArea(%0) CHAIN_PUBLIC:WC_OnPlayerEnterDynArea(%0)
+	CHAIN_FORWARD:WC_OnPlayerEnterDynArea(playerid, STREAMER_TAG_AREA:areaid) = 1;
+
+	#if defined _ALS_OnPlayerLeaveDynamicArea
+		#undef OnPlayerLeaveDynamicArea
+	#else
+		#define _ALS_OnPlayerLeaveDynamicArea
+	#endif
+	#define OnPlayerLeaveDynamicArea(%0) CHAIN_PUBLIC:WC_OnPlayerLeaveDynArea(%0)
+	CHAIN_FORWARD:WC_OnPlayerLeaveDynArea(playerid, STREAMER_TAG_AREA:areaid) = 1;
 #endif
 
 
